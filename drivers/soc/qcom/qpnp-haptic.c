@@ -2310,6 +2310,64 @@ static int qpnp_hap_auto_mode_config(struct qpnp_hap *hap, int time_ms)
 	return 0;
 }
 
+void qpnp_hap_td_enable_external(int time_ms)
+{
+	bool state = !!time_ms;
+	ktime_t rem;
+	int rc;
+
+	if (time_ms < 0)
+		return;
+
+	mutex_lock(&ghap->lock);
+
+	if (ghap->state == state) {
+		if (state) {
+			rem = hrtimer_get_remaining(&ghap->hap_timer);
+			if (time_ms > ktime_to_ms(rem)) {
+				time_ms = (time_ms > ghap->timeout_ms ?
+						 ghap->timeout_ms : time_ms);
+				hrtimer_cancel(&ghap->hap_timer);
+				ghap->play_time_ms = time_ms;
+				hrtimer_start(&ghap->hap_timer,
+						ktime_set(time_ms / 1000,
+						(time_ms % 1000) * 1000000),
+						HRTIMER_MODE_REL);
+			}
+		}
+		mutex_unlock(&ghap->lock);
+		return;
+	}
+
+	ghap->state = state;
+	if (!ghap->state) {
+		hrtimer_cancel(&ghap->hap_timer);
+	} else {
+		if (time_ms < 10)
+			time_ms = 10;
+
+		if (ghap->auto_mode) {
+			rc = qpnp_hap_auto_mode_config(ghap, time_ms);
+			if (rc < 0) {
+				pr_err("Unable to do auto mode config\n");
+				mutex_unlock(&ghap->lock);
+				return;
+			}
+		}
+
+		time_ms = (time_ms > ghap->timeout_ms ?
+				 ghap->timeout_ms : time_ms);
+		ghap->play_time_ms = time_ms;
+		hrtimer_start(&ghap->hap_timer,
+				ktime_set(time_ms / 1000,
+				(time_ms % 1000) * 1000000),
+				HRTIMER_MODE_REL);
+	}
+
+	mutex_unlock(&ghap->lock);
+	schedule_work(&ghap->work);
+}
+
 /* enable interface from timed output class */
 static void qpnp_hap_td_enable(struct timed_output_dev *dev, int time_ms)
 {
