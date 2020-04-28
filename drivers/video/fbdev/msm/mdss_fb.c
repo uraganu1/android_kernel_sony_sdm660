@@ -92,6 +92,8 @@ static u32 mdss_fb_pseudo_palette[16] = {
 	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff
 };
 
+#define BKL_UP_TIME 1024 // ms
+
 static struct msm_mdp_interface *mdp_instance;
 
 static int mdss_fb_register(struct msm_fb_data_type *mfd);
@@ -273,35 +275,157 @@ static int mdss_fb_notify_update(struct msm_fb_data_type *mfd,
 
 static int lcd_backlight_registered;
 
+static void mdss_fb_set_bl_brightness_delayed_work(struct work_struct *work)
+{
+	struct msm_fb_data_type *mfd = container_of((struct delayed_work *)work, struct msm_fb_data_type, bkl_on_dwork);
+	int w_time;
+
+	if (!mutex_trylock(&mfd->bkl_on_lock))
+                return;
+
+	if (mfd->c_bl_level == 0) {
+		// compute next step in display brightness ...
+		if (mfd->w_bl_level != 0) {
+			mfd->t_bl_level = 4*BKL_UP_TIME/(mfd->w_bl_level-mfd->c_bl_level);
+			w_time = mfd->t_bl_level;
+			mfd->c_bl_level = mfd->panel_info->bl_min;
+
+			if (mfd->boot_notification_led) {
+				led_trigger_event(mfd->boot_notification_led, 0);
+				mfd->boot_notification_led = NULL;
+			}
+			
+			if (!IS_CALIB_MODE_BL(mfd) && (!mfd->ext_bl_ctrl || !mfd->c_bl_level ||!mfd->bl_level)) {
+				mutex_lock(&mfd->bl_lock);
+				mdss_fb_set_backlight(mfd, mfd->c_bl_level);
+				mutex_unlock(&mfd->bl_lock);
+			}
+			mutex_unlock(&mfd->bkl_on_lock);
+			mfd->bl_level_usr = mfd->c_bl_level;
+			schedule_delayed_work(&mfd->bkl_on_dwork, msecs_to_jiffies(w_time));
+		}
+		else {
+			mfd->w_bl_level = 0;
+			mutex_unlock(&mfd->bkl_on_lock);
+		}
+	}
+	else {
+		if (mfd->t_bl_level == 0) {
+			mfd->t_bl_level = 4*BKL_UP_TIME/(mfd->w_bl_level-mfd->c_bl_level);
+		}
+		if (mfd->w_bl_level > mfd->c_bl_level) {
+			mfd->c_bl_level += 4;
+		}
+		else if (mfd->w_bl_level < mfd->c_bl_level) {
+			mfd->c_bl_level = mfd->w_bl_level;
+		}
+		if (mfd->boot_notification_led) {
+			led_trigger_event(mfd->boot_notification_led, 0);
+			mfd->boot_notification_led = NULL;
+		}
+		
+		if (!IS_CALIB_MODE_BL(mfd) && (!mfd->ext_bl_ctrl || !mfd->c_bl_level ||!mfd->bl_level)) {
+			mutex_lock(&mfd->bl_lock);
+			mdss_fb_set_backlight(mfd, mfd->c_bl_level);
+			mutex_unlock(&mfd->bl_lock);
+		}
+		w_time = mfd->t_bl_level;
+		mfd->bl_level_usr = mfd->c_bl_level;
+		if (mfd->c_bl_level == mfd->w_bl_level) {
+			mfd->t_bl_level = 0;
+			mutex_unlock(&mfd->bkl_on_lock);
+		}
+		else {
+			mutex_unlock(&mfd->bkl_on_lock);
+			schedule_delayed_work(&mfd->bkl_on_dwork, msecs_to_jiffies(w_time));
+		}
+	}
+}
+
+
 static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 				      enum led_brightness value)
 {
 	struct msm_fb_data_type *mfd = dev_get_drvdata(led_cdev->dev->parent);
 	int bl_lvl;
 
-	if (mfd->boot_notification_led) {
-		led_trigger_event(mfd->boot_notification_led, 0);
-		mfd->boot_notification_led = NULL;
-	}
-
 	if (value > mfd->panel_info->brightness_max)
 		value = mfd->panel_info->brightness_max;
 
-	/* This maps android backlight level 0 to 255 into
-	   driver backlight level 0 to bl_max with rounding */
-	MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
+	if (value == 0) {
+		if (mfd->boot_notification_led) {
+			led_trigger_event(mfd->boot_notification_led, 0);
+			mfd->boot_notification_led = NULL;
+		}
+
+		if (value > mfd->panel_info->brightness_max)
+			value = mfd->panel_info->brightness_max;
+
+		/* This maps android backlight level 0 to 255 into
+	   	driver backlight level 0 to bl_max with rounding */
+		MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
 				mfd->panel_info->brightness_max);
 
-	if (!bl_lvl && value)
-		bl_lvl = 1;
-
-	if (!IS_CALIB_MODE_BL(mfd) && (!mfd->ext_bl_ctrl || !value ||
-							!mfd->bl_level)) {
+		if (!bl_lvl && value)
+			bl_lvl = 1;
+		
+		cancel_delayed_work_sync(&mfd->bkl_on_dwork);
+		mfd->c_bl_level = 0;
+		mfd->w_bl_level = 0;
+		mfd->t_bl_level = 0;
 		mutex_lock(&mfd->bl_lock);
 		mdss_fb_set_backlight(mfd, bl_lvl);
 		mutex_unlock(&mfd->bl_lock);
+		mfd->bl_level_usr = bl_lvl;
 	}
-	mfd->bl_level_usr = bl_lvl;
+	else {
+		mutex_lock(&mfd->bkl_on_lock);
+		if (mfd->c_bl_level == 0) {
+			/* This maps android backlight level 0 to 255 into
+	   		driver backlight level 0 to bl_max with rounding */
+			MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
+				mfd->panel_info->brightness_max);
+			mfd->w_bl_level = bl_lvl;
+			mutex_unlock(&mfd->bkl_on_lock);
+			schedule_delayed_work(&mfd->bkl_on_dwork, msecs_to_jiffies(256));
+		}
+		else if (mfd->t_bl_level != 0) {
+			/* This maps android backlight level 0 to 255 into
+ 	   		driver backlight level 0 to bl_max with rounding */
+			MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
+					mfd->panel_info->brightness_max);
+			mfd->w_bl_level = bl_lvl;
+			// display on is currently scheduled
+			mutex_unlock(&mfd->bkl_on_lock);
+		}
+		else {
+			// tracking disp backlight value
+			mfd->w_bl_level = value;
+			mfd->c_bl_level = value;
+			if (mfd->boot_notification_led) {
+				led_trigger_event(mfd->boot_notification_led, 0);
+				mfd->boot_notification_led = NULL;
+			}
+			if (value > mfd->panel_info->brightness_max)
+				value = mfd->panel_info->brightness_max;
+			/* This maps android backlight level 0 to 255 into
+	   		driver backlight level 0 to bl_max with rounding */
+			MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
+					mfd->panel_info->brightness_max);
+
+			if (!bl_lvl && value)
+				bl_lvl = 1;
+			
+			mutex_unlock(&mfd->bkl_on_lock);
+			if (!IS_CALIB_MODE_BL(mfd) && (!mfd->ext_bl_ctrl || !value ||
+							!mfd->bl_level)) {
+				mutex_lock(&mfd->bl_lock);
+				mdss_fb_set_backlight(mfd, bl_lvl);
+				mutex_unlock(&mfd->bl_lock);
+			}
+			mfd->bl_level_usr = bl_lvl;
+		}
+	}
 }
 
 static enum led_brightness mdss_fb_get_bl_brightness(
@@ -2762,6 +2886,12 @@ static int mdss_fb_register(struct msm_fb_data_type *mfd)
 	snprintf(panel_name, ARRAY_SIZE(panel_name), "mdss_panel_fb%d",
 		mfd->index);
 	mdss_panel_debugfs_init(panel_info, panel_name);
+
+	mutex_init(&mfd->bkl_on_lock);
+	mfd->c_bl_level = mfd->bl_level;
+	mfd->w_bl_level = mfd->c_bl_level;
+	INIT_DELAYED_WORK(&mfd->bkl_on_dwork, mdss_fb_set_bl_brightness_delayed_work);
+	
 	pr_info("FrameBuffer[%d] %dx%d registered successfully!\n", mfd->index,
 					fbi->var.xres, fbi->var.yres);
 

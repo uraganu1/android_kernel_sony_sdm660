@@ -366,6 +366,12 @@ struct msm_fb_data_type {
 	u32 wait_for_kickoff;
 	u32 thermal_level;
 
+	struct mutex bkl_on_lock;
+	struct delayed_work bkl_on_dwork;
+	int c_bl_level;
+	int w_bl_level;
+	int t_bl_level;
+
 	int fb_mmap_type;
 	struct led_trigger *boot_notification_led;
 
