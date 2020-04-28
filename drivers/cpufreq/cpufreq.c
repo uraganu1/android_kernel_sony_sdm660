@@ -1755,7 +1755,7 @@ void cpufreq_resume(void)
 {
 	struct cpufreq_policy *policy;
 
-	if (!cpufreq_driver)
+	if (!cpufreq_driver || unlikely(!cpufreq_suspended))
 		return;
 
 	cpufreq_suspended = false;
