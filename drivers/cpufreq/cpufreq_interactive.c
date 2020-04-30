@@ -176,9 +176,12 @@ struct cpufreq_interactive_tunables {
 
 	/* Maximum frequency while the screen is off */
 #define DEFAULT_SCREEN_OFF_MAX_BIG 1344000
-	unsigned long screen_off_max_big;
 #define DEFAULT_SCREEN_OFF_MAX_LITTLE 1536000
-	unsigned long screen_off_max_little;
+	unsigned long screen_off_max;
+	/* Not tunable, but used internally */
+	/* for cluster identification       */
+	unsigned int min_freq;
+	unsigned int max_freq;
 };
 
 /* For cases where we have single governor instance for system */
@@ -186,17 +189,6 @@ static struct cpufreq_interactive_tunables *common_tunables;
 static struct cpufreq_interactive_tunables *cached_common_tunables;
 
 static struct attribute_group *get_sysfs_attr(void);
-
-typedef enum {LITTLE = 0, BIG = 1} CPU_TYPE;
-unsigned int cputype[NR_CPUS] = {BIG, BIG, BIG, BIG, LITTLE, LITTLE, LITTLE, LITTLE};
-
-static int is_cpu_big(int cpu)
-{
-	if ((cpu >= 0) && (cpu < NR_CPUS)) {
-		return cputype[cpu];
-	}
-	return 0;
-}
 
 /* Round to starting jiffy of next evaluation window */
 static u64 round_to_nw_start(u64 jif,
@@ -770,14 +762,8 @@ static int cpufreq_interactive_speedchange_task(void *data)
 			}
 
 			if (unlikely(!display_on)) {
-			    if (is_cpu_big(cpu)) {
-			        if (ppol->target_freq > tunables->screen_off_max_big)
-				    ppol->target_freq = tunables->screen_off_max_big;
-			    }
-			    else {
-				if (ppol->target_freq > tunables->screen_off_max_little)
-                                    ppol->target_freq = tunables->screen_off_max_little;
-                            }
+				if (ppol->target_freq > tunables->screen_off_max)
+                        		ppol->target_freq = tunables->screen_off_max;
 			}
 
 			if (ppol->target_freq != ppol->policy->cur) {
@@ -1509,14 +1495,14 @@ static ssize_t store_powersave_bias(struct cpufreq_interactive_tunables *tunable
 	return count;
 }
 
-static ssize_t show_screen_off_maxfreq_big(
+static ssize_t show_screen_off_maxfreq(
 		struct cpufreq_interactive_tunables *tunables,
                 char *buf)
 {
-	return sprintf(buf, "%lu\n", tunables->screen_off_max_big);
+	return sprintf(buf, "%lu\n", tunables->screen_off_max);
 }
 
-static ssize_t store_screen_off_maxfreq_big(
+static ssize_t store_screen_off_maxfreq(
 		struct cpufreq_interactive_tunables *tunables,
                 const char *buf, size_t count)
 {
@@ -1527,38 +1513,18 @@ static ssize_t store_screen_off_maxfreq_big(
 	if (ret < 0)
 		return ret;
 
-	if ((val < 787200) || (val > 2208000))
-		tunables->screen_off_max_big = DEFAULT_SCREEN_OFF_MAX_BIG;
-	else
-		tunables->screen_off_max_big = val;
+	if ((tunables->min_freq != 0) && ((val < tunables->min_freq) || (val > tunables->max_freq)))
+		if (tunables->min_freq < 787200) {
+			tunables->screen_off_max = DEFAULT_SCREEN_OFF_MAX_LITTLE;
+		}
+		else {
+			tunables->screen_off_max = DEFAULT_SCREEN_OFF_MAX_BIG;
+		}
+	else if (val != 0) {
+		tunables->screen_off_max = val;
+	}
 
 	return count;
-}
-
-static ssize_t show_screen_off_maxfreq_little(
-                struct cpufreq_interactive_tunables *tunables,
-                char *buf)
-{
-        return sprintf(buf, "%lu\n", tunables->screen_off_max_little);
-}
-
-static ssize_t store_screen_off_maxfreq_little(
-                struct cpufreq_interactive_tunables *tunables,
-                const char *buf, size_t count)
-{
-        int ret;
-        unsigned long val;
-
-        ret = kstrtoul(buf, 0, &val);
-        if (ret < 0)
-                return ret;
-
-        if ((val < 614400) || (val > 1843200))
-                tunables->screen_off_max_little = DEFAULT_SCREEN_OFF_MAX_LITTLE;
-        else
-                tunables->screen_off_max_little = val;
-
-        return count;
 }
 
 /*
@@ -1617,8 +1583,7 @@ show_store_gov_pol_sys(ignore_hispeed_on_notif);
 show_store_gov_pol_sys(fast_ramp_down);
 show_store_gov_pol_sys(enable_prediction);
 show_store_gov_pol_sys(powersave_bias);
-show_store_gov_pol_sys(screen_off_maxfreq_big);
-show_store_gov_pol_sys(screen_off_maxfreq_little);
+show_store_gov_pol_sys(screen_off_maxfreq);
 
 #define gov_sys_attr_rw(_name)						\
 static struct global_attr _name##_gov_sys =				\
@@ -1651,8 +1616,7 @@ gov_sys_pol_attr_rw(ignore_hispeed_on_notif);
 gov_sys_pol_attr_rw(fast_ramp_down);
 gov_sys_pol_attr_rw(enable_prediction);
 gov_sys_pol_attr_rw(powersave_bias);
-gov_sys_pol_attr_rw(screen_off_maxfreq_big);
-gov_sys_pol_attr_rw(screen_off_maxfreq_little);
+gov_sys_pol_attr_rw(screen_off_maxfreq);
 
 static struct global_attr boostpulse_gov_sys =
 	__ATTR(boostpulse, 0200, NULL, store_boostpulse_gov_sys);
@@ -1682,8 +1646,7 @@ static struct attribute *interactive_attributes_gov_sys[] = {
 	&fast_ramp_down_gov_sys.attr,
 	&enable_prediction_gov_sys.attr,
 	&powersave_bias_gov_sys.attr,
-	&screen_off_maxfreq_big_gov_sys.attr,
-	&screen_off_maxfreq_little_gov_sys.attr,
+	&screen_off_maxfreq_gov_sys.attr,
 	NULL,
 };
 
@@ -1714,8 +1677,7 @@ static struct attribute *interactive_attributes_gov_pol[] = {
 	&fast_ramp_down_gov_pol.attr,
 	&enable_prediction_gov_pol.attr,
 	&powersave_bias_gov_pol.attr,
-	&screen_off_maxfreq_big_gov_pol.attr,
-	&screen_off_maxfreq_little_gov_pol.attr,
+	&screen_off_maxfreq_gov_pol.attr,
 	NULL,
 };
 
@@ -1755,10 +1717,11 @@ static struct cpufreq_interactive_tunables *alloc_tunable(
 	tunables->timer_rate = DEFAULT_TIMER_RATE;
 	tunables->boostpulse_duration_val = DEFAULT_MIN_SAMPLE_TIME;
 	tunables->timer_slack_val = DEFAULT_TIMER_SLACK;
-	tunables->screen_off_max_big = DEFAULT_SCREEN_OFF_MAX_BIG;
-	tunables->screen_off_max_little = DEFAULT_SCREEN_OFF_MAX_LITTLE;
+	tunables->screen_off_max = 0;
 	tunables->boost_val = 0;
 	tunables->touchboost_val = 0;
+	tunables->min_freq = 0;
+	tunables->max_freq = 0;
 	
 	spin_lock_init(&tunables->target_loads_lock);
 	spin_lock_init(&tunables->above_hispeed_delay_lock);
@@ -1869,6 +1832,18 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 			if (IS_ERR(tunables))
 				return PTR_ERR(tunables);
 		}
+
+		tunables->min_freq = policy->min;
+                tunables->max_freq = policy->max;
+
+                if (tunables->screen_off_max == 0) {
+                        if (tunables->min_freq < 787200) {
+                                tunables->screen_off_max = DEFAULT_SCREEN_OFF_MAX_LITTLE;
+                        }
+                        else {
+                                tunables->screen_off_max = DEFAULT_SCREEN_OFF_MAX_BIG;
+                        }
+                }
 
 		tunables->usage_count = 1;
 		policy->governor_data = tunables;
