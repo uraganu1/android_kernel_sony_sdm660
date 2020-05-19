@@ -328,3 +328,9 @@ config PM_GENERIC_DOMAINS_OF
 
 config CPU_PM
 	bool
+
+config BOEFFLA_WL_BLOCKER
+	bool "Enable kernel wake blocker"
+	default n
+	help
+	  Kernel wake blocker
