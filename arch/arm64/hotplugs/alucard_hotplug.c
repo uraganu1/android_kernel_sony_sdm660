@@ -199,8 +199,8 @@ static void update_cpu_available_to_take_down_map(unsigned int min_cpus_online)
 {
 	unsigned int i = 0;
 	struct hotplug_cpuinfo *pcpu_info;
-	unsigned int tdl = hotplug_tuners_ins.min_cpus_online/2;
-	unsigned int tdb = hotplug_tuners_ins.min_cpus_online - tdl - 1;
+	unsigned int tdl = (min_cpus_online > 1) ? (min_cpus_online/2 + min_cpus_online%2) : min_cpus_online/2;
+	unsigned int tdb = ((min_cpus_online - tdl) > 0) ? (min_cpus_online - tdl - 1) : (min_cpus_online - tdl);
 
 	for (i = 1; i < NR_CPUS; i++) {
                 pcpu_info = &per_cpu(od_hotplug_cpuinfo, i);
