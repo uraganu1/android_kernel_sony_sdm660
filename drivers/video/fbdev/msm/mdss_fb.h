@@ -248,6 +248,12 @@ struct msm_mdp_interface {
 				out = (2 * ((v) * (max_bright)) + (bl_max));\
 				do_div(out, 2 * bl_max);\
 				} while (0)
+#define MDSS_BRIGHT_TO_DIM(out, v, adjust, b_min, b_max) do {\
+				out = (b_max - v)/(b_max/b_min)*adjust/112 +\
+				v*(112-adjust)/112%(b_max + 1);\
+				if (out < b_min) out = b_min;\
+				} while(0)
+
 
 struct mdss_fb_file_info {
 	struct file *file;

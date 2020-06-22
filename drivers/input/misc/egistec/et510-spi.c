@@ -68,6 +68,8 @@
 #include <linux/qpnp/qpnp-haptic.h>
 #endif
 
+#include <linux/android_tweaks.h>
+
 struct wake_lock et510_wake_lock;
 
 #define FP_SPI_DEBUG
@@ -923,9 +925,9 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
 }
 #endif //CONFIG_FB
 
-struct kobject *android_touch_kfpobj;
+struct kobject *android_tweaks_kfpobj = NULL;
 
-EXPORT_SYMBOL_GPL(android_touch_kfpobj);
+EXPORT_SYMBOL_GPL(android_tweaks_kfpobj);
 
 static ssize_t fp2w_fingerprint2wake_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1225,12 +1227,14 @@ static int etspi_probe(struct platform_device *pdev)
             input_free_device(fingerprint2wake_pwrdev);
         }
         else {
-            android_touch_kfpobj = kobject_create_and_add("android_touch", NULL) ;
-            if (android_touch_kfpobj == NULL) {
-                pr_warn("%s: android_touch_kobj create_and_add failed\n", __func__);
+		if (android_tweaks_kfpobj == NULL) {
+            	android_tweaks_kfpobj = kobject_create_and_add("android_tweaks", NULL) ;
+		}
+            if (android_tweaks_kfpobj == NULL) {
+                pr_warn("%s: android_tweaks_kobj create_and_add failed\n", __func__);
             }
             else {
-                error = sysfs_create_file(android_touch_kfpobj, &dev_attr_fingerprint2wake.attr);
+                error = sysfs_create_file(android_tweaks_kfpobj, &dev_attr_fingerprint2wake.attr);
                 if (error) {
                     pr_warn("%s: sysfs_create_file failed for doublewave2wake\n", __func__);
                 }
