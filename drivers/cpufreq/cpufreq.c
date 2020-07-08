@@ -30,10 +30,19 @@
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
 #include <linux/tick.h>
+#include <linux/android_tweaks.h>
 #ifdef CONFIG_SMP
 #include <linux/sched.h>
 #endif
 #include <trace/events/power.h>
+
+#define DEFAULT_MINFREQFREEZE 1
+
+atomic_t minfreqfreeze_val;
+
+typedef enum {LITTLE = 0, BIG = 1} CPU_TYPE;
+
+unsigned int cputype[NR_CPUS] = {BIG, BIG, BIG, BIG, LITTLE, LITTLE, LITTLE, LITTLE};
 
 static LIST_HEAD(cpufreq_policy_list);
 
@@ -707,9 +716,19 @@ static ssize_t store_##file_name					\
 {									\
 	int ret, temp;							\
 	struct cpufreq_policy new_policy;				\
+	unsigned int cpu;						\
+	int big_cpu = 0;						\
+	int freeze_val = atomic_read(&minfreqfreeze_val);               \
 									\
 	memcpy(&new_policy, policy, sizeof(*policy));			\
-	new_policy.min = policy->user_policy.min;			\
+        for_each_cpu(cpu, policy->related_cpus)				\
+		big_cpu = cputype[cpu];					\
+									\
+	if (freeze_val == 0)                                            \
+		new_policy.min = policy->user_policy.min;               \
+	else if ((freeze_val == 1) && !big_cpu)				\
+		new_policy.min = policy->user_policy.min;		\
+									\
 	new_policy.max = policy->user_policy.max;			\
 									\
 	ret = sscanf(buf, "%u", &new_policy.object);			\
@@ -717,7 +736,7 @@ static ssize_t store_##file_name					\
 		return -EINVAL;						\
 									\
 	temp = new_policy.object;					\
-	ret = cpufreq_set_policy(policy, &new_policy);		\
+	ret = cpufreq_set_policy(policy, &new_policy);			\
 	if (!ret)							\
 		policy->user_policy.object = temp;			\
 									\
@@ -2681,8 +2700,38 @@ void cpufreq_put_global_kobject(void)
 }
 EXPORT_SYMBOL(cpufreq_put_global_kobject);
 
+static ssize_t cpufreq_minfreqfreeze_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int freeze_val;
+	size_t count = 0;
+
+	freeze_val = atomic_read(&minfreqfreeze_val);
+	count += sprintf(buf, "%d\n", freeze_val);
+        return count;
+}
+
+static ssize_t cpufreq_minfreqfreeze_dump(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+        int r, freeze_val;
+
+        r = kstrtoint(buf, 10, &freeze_val);
+        if ((r) || (freeze_val < 0)) {
+                return -EINVAL;
+        }
+        if (freeze_val > 2) {
+                freeze_val = 2;
+        }
+
+        atomic_set(&minfreqfreeze_val, freeze_val);
+
+        return count;
+}
+static DEVICE_ATTR(minfreqfreeze, 0644, cpufreq_minfreqfreeze_show, cpufreq_minfreqfreeze_dump);
+
 static int __init cpufreq_core_init(void)
 {
+	int ret;
+
 	if (cpufreq_disabled())
 		return -ENODEV;
 
@@ -2690,6 +2739,20 @@ static int __init cpufreq_core_init(void)
 	BUG_ON(!cpufreq_global_kobject);
 
 	register_syscore_ops(&cpufreq_syscore_ops);
+
+	if (android_tweaks_kfpobj == NULL) {
+                android_tweaks_kfpobj = kobject_create_and_add("android_tweaks", NULL) ;
+        }
+        if (android_tweaks_kfpobj == NULL) {
+                pr_warn("%s: android_tweaks_kobj create_and_add failed\n", __func__);
+        }
+        else {
+                ret = sysfs_create_file(android_tweaks_kfpobj, &dev_attr_minfreqfreeze.attr);
+                if (ret) {
+                        pr_warn("%s: sysfs_create_file failed for minfreqfreeze\n", __func__);
+                }
+        }
+	atomic_set(&minfreqfreeze_val, DEFAULT_MINFREQFREEZE);
 
 	return 0;
 }

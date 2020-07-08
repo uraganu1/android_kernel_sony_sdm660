@@ -1030,10 +1030,10 @@ static ssize_t mdss_fb_idle_pc_notify(struct device *dev,
 
 static ssize_t mdss_dimadjust_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	  int adjust_val;
+	int adjust_val;
         size_t count = 0;
 
-	  adjust_val = atomic_read(&dim_adjust_val);
+	adjust_val = atomic_read(&dim_adjust_val);
         count += sprintf(buf, "%d\n", adjust_val);
         return count;
 }
@@ -2907,16 +2907,16 @@ static int mdss_fb_register(struct msm_fb_data_type *mfd)
 	mdss_panel_debugfs_init(panel_info, panel_name);
 
 	if (android_tweaks_kfpobj == NULL) {
-      	android_tweaks_kfpobj = kobject_create_and_add("android_tweaks", NULL) ;
+      		android_tweaks_kfpobj = kobject_create_and_add("android_tweaks", NULL) ;
 	}
-      if (android_tweaks_kfpobj == NULL) {
-      	pr_warn("%s: android_tweaks_kobj create_and_add failed\n", __func__);
-      }
+	if (android_tweaks_kfpobj == NULL) {
+		pr_warn("%s: android_tweaks_kobj create_and_add failed\n", __func__);
+	}
 	else {
 		ret = sysfs_create_file(android_tweaks_kfpobj, &dev_attr_dimadjust.attr);
-            if (ret) {
-            	pr_warn("%s: sysfs_create_file failed for dimadjust\n", __func__);
-            }
+        	if (ret) {
+        		pr_warn("%s: sysfs_create_file failed for dimadjust\n", __func__);
+        	}
 	}
 
 	mutex_init(&mfd->bkl_on_lock);
