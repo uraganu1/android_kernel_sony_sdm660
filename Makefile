@@ -404,7 +404,7 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
                    --param l2-cache-size=2048 \
                    --param l1-cache-line-size=64 \
                    -fno-asynchronous-unwind-tables \
-                   -mcpu=cortex-a73 -mtune=cortex-a73 -march=armv8-a+crc+crypto -mcpu=cortex-a73+crc+crypto \
+                   -mcpu=cortex-a53 -mtune=cortex-a53 -march=armv8-a+crc+crypto -mcpu=cortex-a53+crc+crypto \
 		   -std=gnu89 $(call cc-option,-fno-PIE)
 
 ifeq ($(TARGET_BOARD_TYPE),auto)
