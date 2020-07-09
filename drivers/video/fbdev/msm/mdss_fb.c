@@ -339,6 +339,21 @@ static void mdss_fb_set_bl_brightness_delayed_work(struct work_struct *work)
 	schedule_delayed_work(&mfd->bkl_on_dwork, msecs_to_jiffies(w_time));
 }
 
+#ifndef CONFIG_FB_MSM_MDSS_KCAL_CTRL
+int adjust_dim_value(int ival)
+{
+	int value = ival;
+
+	if (value < 0) {
+		value = 0;
+	}
+	else if (value > 110) {
+		value = 110;
+	}
+
+	return value;
+}
+#endif
 
 static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 				      enum led_brightness value)
@@ -346,6 +361,7 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 	struct msm_fb_data_type *mfd = dev_get_drvdata(led_cdev->dev->parent);
 	int bl_lvl, adjusted_bl_lvl;
 	int adjust_value = atomic_read(&dim_adjust_val);
+	adjust_value = adjust_dim_value(adjust_value);
 
 	if (value > mfd->panel_info->brightness_max)
 			value = mfd->panel_info->brightness_max;
@@ -1028,6 +1044,7 @@ static ssize_t mdss_fb_idle_pc_notify(struct device *dev,
 	return scnprintf(buf, PAGE_SIZE, "idle power collapsed\n");
 }
 
+#ifndef CONFIG_FB_MSM_MDSS_KCAL_CTRL
 static ssize_t mdss_dimadjust_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	int adjust_val;
@@ -1046,15 +1063,13 @@ static ssize_t mdss_dimadjust_dump(struct device *dev, struct device_attribute *
 	if ((r) || (adjust_val < 0)) {
 		return -EINVAL;
 	}
-	if (adjust_val > 110) {
-		adjust_val = 110;
-	}
 
 	atomic_set(&dim_adjust_val, adjust_val);
 
 	return count;
 }
 static DEVICE_ATTR(dimadjust, 0644, mdss_dimadjust_show, mdss_dimadjust_dump);
+#endif //CONFIG_FB_MSM_MDSS_KCAL_CTRL
 
 static DEVICE_ATTR(msm_fb_type, S_IRUGO, mdss_fb_get_type, NULL);
 static DEVICE_ATTR(msm_fb_split, S_IRUGO | S_IWUSR, mdss_fb_show_split,
@@ -2906,6 +2921,7 @@ static int mdss_fb_register(struct msm_fb_data_type *mfd)
 		mfd->index);
 	mdss_panel_debugfs_init(panel_info, panel_name);
 
+#ifndef CONFIG_FB_MSM_MDSS_KCAL_CTRL
 	if (android_tweaks_kfpobj == NULL) {
       		android_tweaks_kfpobj = kobject_create_and_add("android_tweaks", NULL) ;
 	}
@@ -2918,6 +2934,7 @@ static int mdss_fb_register(struct msm_fb_data_type *mfd)
         		pr_warn("%s: sysfs_create_file failed for dimadjust\n", __func__);
         	}
 	}
+#endif
 
 	mutex_init(&mfd->bkl_on_lock);
 	mfd->c_bl_level = mfd->bl_level;

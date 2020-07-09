@@ -8,6 +8,7 @@
 #define __ANDROID_TWEAKS_H
 
 extern struct kobject *android_tweaks_kfpobj;
+extern int adjust_dim_value(int ival);
 
 #endif
 

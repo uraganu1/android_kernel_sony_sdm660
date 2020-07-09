@@ -40,7 +40,10 @@ struct kcal_lut_data {
 	int hue;
 	int val;
 	int cont;
+	struct mutex lock;
 };
+
+static struct kcal_lut_data *kcalld = NULL;
 
 static uint32_t igc_Table_Inverted[IGC_LUT_ENTRIES] = {
 	267390960, 266342368, 265293776, 264245184,
@@ -314,6 +317,25 @@ static void mdss_mdp_kcal_update_igc(struct kcal_lut_data *lut_data)
 	kfree(payload);
 }
 
+int adjust_dim_value(int ival)
+{
+	int value = ival;
+
+	if (kcalld != NULL) {
+		mutex_lock(&kcalld->lock);
+		value = kcalld->minimum;
+		mutex_unlock(&kcalld->lock);
+	}
+	if (value < 0) {
+		value = 0;
+	}
+	else if (value > 110) {
+		value = 110;
+	}
+
+	return value;
+}
+
 static ssize_t kcal_store(struct device *dev, struct device_attribute *attr,
 						const char *buf, size_t count)
 {
@@ -354,7 +376,9 @@ static ssize_t kcal_min_store(struct device *dev,
 	if ((r) || (kcal_min < 0 || kcal_min > 256))
 		return -EINVAL;
 
+	mutex_lock(&lut_data->lock);
 	lut_data->minimum = kcal_min;
+	mutex_unlock(&lut_data->lock);
 
 	mdss_mdp_kcal_update_pcc(lut_data);
 	mdss_mdp_kcal_display_commit();
@@ -551,6 +575,7 @@ static int kcal_ctrl_probe(struct platform_device *pdev)
 	lut_data->sat = DEF_SAT;
 	lut_data->val = DEF_PA;
 	lut_data->cont = DEF_PA;
+	mutex_init(&lut_data->lock);
 
 	mdss_mdp_kcal_update_pcc(lut_data);
 	mdss_mdp_kcal_update_pa(lut_data);
@@ -569,6 +594,7 @@ static int kcal_ctrl_probe(struct platform_device *pdev)
 		pr_err("%s: unable to create sysfs entries\n", __func__);
 		return ret;
 	}
+	kcalld = lut_data;
 
 	return 0;
 }
