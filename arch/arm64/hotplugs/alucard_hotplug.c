@@ -61,6 +61,7 @@ static struct hotplug_tuners {
 	unsigned int maxcoreslimit_sleep;
 	unsigned int hp_io_is_busy;
 	unsigned int min_little_load;
+	unsigned int favor_big_cpus;
 #if defined(CONFIG_POWERSUSPEND)
 	unsigned int hotplug_suspend;
 	bool suspended;
@@ -75,6 +76,7 @@ static struct hotplug_tuners {
 	.maxcoreslimit_sleep = 1,
 	.hp_io_is_busy = 0,
 	.min_little_load = 85,
+	.favor_big_cpus = 1,
 #if defined(CONFIG_POWERSUSPEND)
 	.hotplug_suspend = 1,
 	.suspended = false,
@@ -199,8 +201,22 @@ static void update_cpu_available_to_take_down_map(unsigned int min_cpus_online)
 {
 	unsigned int i = 0;
 	struct hotplug_cpuinfo *pcpu_info;
-	unsigned int tdl = (min_cpus_online > 1) ? (min_cpus_online/2 + min_cpus_online%2) : min_cpus_online/2;
-	unsigned int tdb = ((min_cpus_online - tdl) > 0) ? (min_cpus_online - tdl - 1) : (min_cpus_online - tdl);
+	unsigned int tdl = 0;
+	unsigned int tdb = 0;
+
+	if (hotplug_tuners_ins.favor_big_cpus == 1) {
+		if ((min_cpus_online < 3) && (min_cpus_online > 0)) {
+			tdb = min_cpus_online - 1;
+		}
+		else if (min_cpus_online <= NR_CPUS) {
+			tdl = (min_cpus_online - 1)/2 + (min_cpus_online - 1)%2;
+	    		tdb = min_cpus_online - tdl - 1;
+		}
+	}
+	else {
+		tdl = (min_cpus_online > 1) ? (min_cpus_online/2 + min_cpus_online%2) : min_cpus_online/2;
+		tdb = ((min_cpus_online - tdl) > 0) ? (min_cpus_online - tdl - 1) : (min_cpus_online - tdl);
+	}
 
 	for (i = 1; i < NR_CPUS; i++) {
                 pcpu_info = &per_cpu(od_hotplug_cpuinfo, i);
@@ -565,6 +581,7 @@ show_one(maxcoreslimit, maxcoreslimit);
 show_one(maxcoreslimit_sleep, maxcoreslimit_sleep);
 show_one(hp_io_is_busy, hp_io_is_busy);
 show_one(min_little_load, min_little_load);
+show_one(favor_big_cpus, favor_big_cpus);
 #if defined(CONFIG_POWERSUSPEND)
 show_one(hotplug_suspend, hotplug_suspend);
 #endif
@@ -990,7 +1007,7 @@ static ssize_t store_hp_io_is_busy(struct kobject *a, struct attribute *b,
 
 /* min_little_load */
 static ssize_t store_min_little_load(struct kobject *a, struct attribute *b,
-                                   const char *buf, size_t count)
+                                     const char *buf, size_t count)
 {
         int input;
         int ret;
@@ -1011,6 +1028,35 @@ static ssize_t store_min_little_load(struct kobject *a, struct attribute *b,
 
 		mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
 	}
+
+        return count;
+}
+
+/* favor_big_cpus */
+static ssize_t store_favor_big_cpus(struct kobject *a, struct attribute *b,
+                                    const char *buf, size_t count)
+{
+        int input;
+        int ret;
+
+        ret = sscanf(buf, "%u", &input);
+        if (ret != 1)
+                return -EINVAL;
+
+        if ((input > 0) && (input <= 1)) {
+                mutex_lock(&hotplug_tuners_ins.alu_hotplug_mutex);
+
+                if (input == hotplug_tuners_ins.favor_big_cpus) {
+                        mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
+                        return count;
+                }
+
+                hotplug_tuners_ins.favor_big_cpus = input;
+
+		update_cpu_available_to_take_down_map(hotplug_tuners_ins.min_cpus_online);
+
+                mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
+        }
 
         return count;
 }
@@ -1061,6 +1107,7 @@ define_one_global_rw(maxcoreslimit);
 define_one_global_rw(maxcoreslimit_sleep);
 define_one_global_rw(hp_io_is_busy);
 define_one_global_rw(min_little_load);
+define_one_global_rw(favor_big_cpus);
 #if defined(CONFIG_POWERSUSPEND)
 define_one_global_rw(hotplug_suspend);
 #endif
@@ -1133,6 +1180,7 @@ static struct attribute *alucard_hotplug_attributes[] = {
         &maxcoreslimit_sleep.attr,
         &hp_io_is_busy.attr,
         &min_little_load.attr,
+	&favor_big_cpus.attr,
 #if defined(CONFIG_POWERSUSPEND)
 	&hotplug_suspend.attr,
 #endif
