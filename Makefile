@@ -401,9 +401,6 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
                    -Wno-bool-compare -Wno-logical-not-parentheses -Wno-incompatible-pointer-types \
                    -Wno-format -fno-modulo-sched \
                    -Wno-parentheses -Wno-sizeof-pointer-memaccess \
-                   --param l1-cache-size=32 \
-                   --param l2-cache-size=2048 \
-                   --param l1-cache-line-size=64 \
                    -fno-asynchronous-unwind-tables \
                    -mcpu=cortex-a73.cortex-a53 -mtune=cortex-a73.cortex-a53 -march=armv8-a+crc+crypto -mcpu=cortex-a73.cortex-a53+crc+crypto \
 		   -fdiagnostics-color=always -ftree-vectorize -pipe \
