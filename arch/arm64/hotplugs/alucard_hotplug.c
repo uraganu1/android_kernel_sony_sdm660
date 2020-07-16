@@ -22,6 +22,9 @@
 #include <linux/mutex.h>
 #include <linux/module.h>
 #include <linux/slab.h>
+#ifdef CONFIG_THERMAL_NOTIFICATION
+#include <linux/thermal_notify.h>
+#endif
 
 #if defined(CONFIG_POWERSUSPEND)
 #include <linux/powersuspend.h>
@@ -62,6 +65,9 @@ static struct hotplug_tuners {
 	unsigned int hp_io_is_busy;
 	unsigned int min_little_load;
 	unsigned int favor_big_cpus;
+#ifdef CONFIG_THERMAL_NOTIFICATION
+	unsigned int thermal_controlled;
+#endif
 #if defined(CONFIG_POWERSUSPEND)
 	unsigned int hotplug_suspend;
 	bool suspended;
@@ -77,6 +83,9 @@ static struct hotplug_tuners {
 	.hp_io_is_busy = 0,
 	.min_little_load = 85,
 	.favor_big_cpus = 1,
+#ifdef CONFIG_THERMAL_NOTIFICATION
+	.thermal_controlled = 1,
+#endif
 #if defined(CONFIG_POWERSUSPEND)
 	.hotplug_suspend = 1,
 	.suspended = false,
@@ -95,6 +104,43 @@ struct runqueue_data {
 };
 
 static struct runqueue_data *rq_data;
+
+#ifdef CONFIG_THERMAL_NOTIFICATION
+static struct notifier_block thermal_notif;
+static long thermal_threshold;
+
+static void update_cpu_available_to_bring_up_map(unsigned int max_core_limit, long thermal_threshold);
+
+static int thermal_notifier_callback(struct notifier_block *this,
+                                     unsigned long event, void *data)
+{
+        switch (event)
+        {
+                case THERMAL_EVENT_CPUS_HOT:
+		case THERMAL_EVENT_CPUS_HOTTER:
+		case THERMAL_EVENT_CPUS_LIMIT_HIT:
+		case THERMAL_EVENT_CPUS_COLD:
+		{
+                        mutex_lock(&hotplug_tuners_ins.alu_hotplug_mutex);
+			thermal_threshold = event;
+			if (hotplug_tuners_ins.thermal_controlled) {
+				if (!hotplug_tuners_ins.suspended) {
+					update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit, thermal_threshold);
+				}
+			}
+			else {
+				thermal_threshold = THERMAL_EVENT_CPUS_COLD;
+				update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit, thermal_threshold);
+			}
+                        mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
+                        break;
+		}
+                default:
+                        break;
+        }
+        return 0;
+}
+#endif
 
 static void init_rq_avg_stats(void)
 {
@@ -162,7 +208,11 @@ typedef enum {IDLE, ON, OFF} HOTPLUG_STATUS;
 
 typedef enum {LITTLE = 0, BIG = 1} CPU_TYPE;
 
+#ifdef CONFIG_THERMAL_NOTIFICATION
+static void update_cpu_available_to_bring_up_map(unsigned int max_core_limit, long thermal_threshold)
+#else
 static void update_cpu_available_to_bring_up_map(unsigned int max_core_limit)
+#endif
 {
         int i;
         struct hotplug_cpuinfo *pcpu_info;
@@ -195,6 +245,75 @@ static void update_cpu_available_to_bring_up_map(unsigned int max_core_limit)
                         mark_big_cpus_down = false;
                 }
         }
+
+#ifdef CONFIG_THERMAL_NOTIFICATION
+	switch (thermal_threshold) {
+		case THERMAL_EVENT_CPUS_HOT:
+		{
+			cpus_to_mark_down = 2;
+			i = NR_CPUS - 1;
+			while ((cpus_to_mark_down > 0) && (i > 0)) {
+				pcpu_info = &per_cpu(od_hotplug_cpuinfo, i);
+				if (pcpu_info->big_cpu) {
+					pcpu_info->can_bring_up = false;
+					cpus_to_mark_down--;
+				}
+				i--;
+			}
+			break;
+		}
+		case THERMAL_EVENT_CPUS_HOTTER:
+		{
+			cpus_to_mark_down = 2;
+			i = NR_CPUS - 1;
+                        while ((cpus_to_mark_down > 0) && (i > 0)) {
+                                pcpu_info = &per_cpu(od_hotplug_cpuinfo, i);
+                                if (!pcpu_info->big_cpu) {
+                                        pcpu_info->can_bring_up = false;
+                                        cpus_to_mark_down--;
+                                }
+				i--;
+                        }
+			cpus_to_mark_down = 2;
+                        i = NR_CPUS - 1;
+                        while ((cpus_to_mark_down > 0) && (i > 0)) {
+                                pcpu_info = &per_cpu(od_hotplug_cpuinfo, i);
+                                if (pcpu_info->big_cpu) {
+                                        pcpu_info->can_bring_up = false;
+                                        cpus_to_mark_down--;
+                                }
+				i--;
+                        }
+			break;
+		}
+		case THERMAL_EVENT_CPUS_LIMIT_HIT:
+		{
+			cpus_to_mark_down = 3;
+                        i = NR_CPUS - 1;
+                        while ((cpus_to_mark_down > 0) && (i > 0)) {
+                                pcpu_info = &per_cpu(od_hotplug_cpuinfo, i);
+                                if (!pcpu_info->big_cpu) {
+                                        pcpu_info->can_bring_up = false;
+                                        cpus_to_mark_down--;
+                                }
+				i--;
+                        }
+                        cpus_to_mark_down = 3;
+                        i = NR_CPUS - 1;
+                        while ((cpus_to_mark_down > 0) && (i > 0)) {
+                                pcpu_info = &per_cpu(od_hotplug_cpuinfo, i);
+                                if (pcpu_info->big_cpu) {
+                                        pcpu_info->can_bring_up = false;
+                                        cpus_to_mark_down--;
+                                }
+				i--;
+                        }
+                        break;
+		}
+		default:
+			break;
+	}
+#endif
 }
 
 static void update_cpu_available_to_take_down_map(unsigned int min_cpus_online)
@@ -457,7 +576,11 @@ static void __ref alucard_hotplug_suspend(struct power_suspend *handler)
 		&& hotplug_tuners_ins.hotplug_suspend == 1) { 
 			mutex_lock(&hotplug_tuners_ins.alu_hotplug_mutex);
 			hotplug_tuners_ins.suspended = true;
+#ifdef CONFIG_THERMAL_NOTIFICATION
+			update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit_sleep, THERMAL_EVENT_CPUS_COLD);
+#else
 			update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit_sleep);
+#endif
 			mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
 	}
 }
@@ -470,7 +593,11 @@ static void __ref alucard_hotplug_resume(struct power_suspend *handler)
 			hotplug_tuners_ins.suspended = false;
 			// wake up everyone
 			hotplug_tuners_ins.force_cpu_up = true;
+#ifdef CONFIG_THERMAL_NOTIFICATION
+			update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit, thermal_threshold);
+#else
 			update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit);
+#endif
 			mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
 	}
 }
@@ -505,7 +632,11 @@ static int hotplug_start(void)
 #endif
 
 	update_cpu_available_to_take_down_map(hotplug_tuners_ins.min_cpus_online);
+#ifdef CONFIG_THERMAL_NOTIFICATION
+	update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit, thermal_threshold);
+#else
 	update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit);
+#endif
 	
 
 	get_online_cpus();
@@ -530,6 +661,12 @@ static int hotplug_start(void)
 	register_power_suspend(&alucard_hotplug_power_suspend_driver);
 #endif  // CONFIG_POWERSUSPEND
 
+#ifdef CONFIG_THERMAL_NOTIFICATION
+	if (thermal_register_client(&thermal_notif) != 0) {
+                pr_err("%s: Failed to register thermal callback\n", __func__);
+        }
+#endif
+
 	return 0;
 }
 
@@ -542,6 +679,12 @@ static void hotplug_stop(void)
 	unregister_power_suspend(&alucard_hotplug_power_suspend_driver);
 #endif  // CONFIG_POWERSUSPEND
 
+#ifdef CONFIG_THERMAL_NOTIFICATION
+        if (thermal_unregister_client(&thermal_notif) != 0) {
+                pr_err("%s: Failed to unregister thermal callback\n", __func__);
+        }
+	thermal_threshold = THERMAL_EVENT_CPUS_COLD;
+#endif
 	cancel_delayed_work_sync(&alucard_hotplug_work);
 
 	exit_rq_avg();
@@ -582,6 +725,9 @@ show_one(maxcoreslimit_sleep, maxcoreslimit_sleep);
 show_one(hp_io_is_busy, hp_io_is_busy);
 show_one(min_little_load, min_little_load);
 show_one(favor_big_cpus, favor_big_cpus);
+#ifdef CONFIG_THERMAL_NOTIFICATION
+show_one(thermal_controlled, thermal_controlled)
+#endif
 #if defined(CONFIG_POWERSUSPEND)
 show_one(hotplug_suspend, hotplug_suspend);
 #endif
@@ -933,7 +1079,11 @@ static ssize_t store_maxcoreslimit(struct kobject *a, struct attribute *b,
 
 	hotplug_tuners_ins.maxcoreslimit = input;
 
+#ifdef CONFIG_THERMAL_NOTIFICATION
+	update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit, thermal_threshold);
+#else
 	update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit);
+#endif
 
 	mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
 
@@ -1061,6 +1211,37 @@ static ssize_t store_favor_big_cpus(struct kobject *a, struct attribute *b,
         return count;
 }
 
+#ifdef CONFIG_THERMAL_NOTIFICATION
+/* thermal_controlled */
+static ssize_t store_thermal_controlled(struct kobject *a, struct attribute *b,
+                                        const char *buf, size_t count)
+{
+        int input;
+        int ret;
+
+        ret = sscanf(buf, "%u", &input);
+        if (ret != 1)
+                return -EINVAL;
+
+        if ((input > 0) && (input <= 1)) {
+                mutex_lock(&hotplug_tuners_ins.alu_hotplug_mutex);
+                if (input == hotplug_tuners_ins.thermal_controlled) {
+                        mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
+                        return count;
+                }
+
+                hotplug_tuners_ins.thermal_controlled = input;
+		if (hotplug_tuners_ins.thermal_controlled == 0) {
+			thermal_threshold = THERMAL_EVENT_CPUS_COLD;
+		}
+		update_cpu_available_to_bring_up_map(hotplug_tuners_ins.maxcoreslimit, thermal_threshold);
+                mutex_unlock(&hotplug_tuners_ins.alu_hotplug_mutex);
+        }
+
+        return count;
+}
+#endif
+
 /*
  * hotplug_suspend control
  * if set = 1 hotplug will sleep,
@@ -1108,6 +1289,9 @@ define_one_global_rw(maxcoreslimit_sleep);
 define_one_global_rw(hp_io_is_busy);
 define_one_global_rw(min_little_load);
 define_one_global_rw(favor_big_cpus);
+#ifdef CONFIG_THERMAL_NOTIFICATION
+define_one_global_rw(thermal_controlled);
+#endif
 #if defined(CONFIG_POWERSUSPEND)
 define_one_global_rw(hotplug_suspend);
 #endif
@@ -1181,6 +1365,9 @@ static struct attribute *alucard_hotplug_attributes[] = {
         &hp_io_is_busy.attr,
         &min_little_load.attr,
 	&favor_big_cpus.attr,
+#ifdef CONFIG_THERMAL_NOTIFICATION
+	&thermal_controlled.attr,
+#endif
 #if defined(CONFIG_POWERSUSPEND)
 	&hotplug_suspend.attr,
 #endif
@@ -1237,8 +1424,8 @@ static int __init alucard_hotplug_init(void)
                 {4, 1}
 	};
 
-	unsigned int hotplug_cputype[NR_CPUS] = {BIG, BIG, BIG, BIG, LITTLE, LITTLE, LITTLE, LITTLE};
 	bool hotplug_initstate[NR_CPUS] = {false, false, false, false, false, false, false, false};
+	unsigned int hotplug_cputype[NR_CPUS] = {BIG, BIG, BIG, BIG, LITTLE, LITTLE, LITTLE, LITTLE};
 
 	ret = sysfs_create_group(kernel_kobj, &alucard_hotplug_attr_group);
 	if (ret) {
@@ -1264,6 +1451,10 @@ static int __init alucard_hotplug_init(void)
                 pcpu_info->can_take_down = hotplug_initstate[cpu];
                 pcpu_info->can_bring_up = !hotplug_initstate[cpu];
 	}
+
+#ifdef CONFIG_THERMAL_NOTIFICATION
+	thermal_notif.notifier_call = thermal_notifier_callback;
+#endif
 
 	if (hotplug_tuners_ins.hotplug_enable > 0) {
 		hotplug_start();
