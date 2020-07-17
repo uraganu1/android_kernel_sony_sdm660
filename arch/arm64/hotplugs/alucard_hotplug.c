@@ -320,21 +320,18 @@ static void update_cpu_available_to_take_down_map(unsigned int min_cpus_online)
 {
 	unsigned int i = 0;
 	struct hotplug_cpuinfo *pcpu_info;
-	unsigned int tdl = 0;
+	unsigned int tdl = 1;
 	unsigned int tdb = 0;
 
-	if (hotplug_tuners_ins.favor_big_cpus == 1) {
-		if ((min_cpus_online < 3) && (min_cpus_online > 0)) {
-			tdb = min_cpus_online - 1;
-		}
-		else if (min_cpus_online <= NR_CPUS) {
+	if ((min_cpus_online > 1) && (min_cpus_online <= 8)) {
+		if (hotplug_tuners_ins.favor_big_cpus == 1) {
 			tdl = (min_cpus_online - 1)/2 + (min_cpus_online - 1)%2;
-	    		tdb = min_cpus_online - tdl - 1;
+			tdb = min_cpus_online - tdl - 1;
 		}
-	}
-	else {
-		tdl = (min_cpus_online > 1) ? (min_cpus_online/2 + min_cpus_online%2) : min_cpus_online/2;
-		tdb = ((min_cpus_online - tdl) > 0) ? (min_cpus_online - tdl - 1) : (min_cpus_online - tdl);
+		else {
+			tdl = min_cpus_online/2 + min_cpus_online%2;
+			tdb = ((min_cpus_online - tdl) > 0) ? (min_cpus_online - tdl - 1) : (min_cpus_online - tdl);
+		}
 	}
 
 	for (i = 1; i < NR_CPUS; i++) {
