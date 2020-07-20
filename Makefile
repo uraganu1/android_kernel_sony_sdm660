@@ -402,7 +402,7 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
                    -Wno-format -fno-modulo-sched \
                    -Wno-parentheses -Wno-sizeof-pointer-memaccess \
                    -fno-asynchronous-unwind-tables \
-                   -mcpu=cortex-a73.cortex-a53 -mtune=cortex-a73.cortex-a53 -march=armv8-a+crc+crypto -mcpu=cortex-a73.cortex-a53+crc+crypto \
+                   -mcpu=cortex-a53 -mtune=cortex-a53 -march=armv8-a+crc+crypto -mcpu=cortex-a53+crc+crypto \
 		   -fdiagnostics-color=always -ftree-vectorize -pipe \
 		   -std=gnu89 $(call cc-option,-fno-PIE)
 

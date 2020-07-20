@@ -19,7 +19,7 @@ ifneq ($(CONFIG_RELOCATABLE),)
 LDFLAGS_vmlinux		+= -pie -Bsymbolic
 endif
 
-KBUILD_CFLAGS   += $(call cc-option,-march=armv8-a+crypto+crc,) $(call cc-option,-mcpu=cortex-a53+crypto+crc,) $(call cc-option,-mtune=cortex-a73.cortex-a53,)
+KBUILD_CFLAGS   += $(call cc-option,-march=armv8-a+crypto+crc,) $(call cc-option,-mcpu=cortex-a53+crypto+crc,) $(call cc-option,-mtune=cortex-a53,)
 
 KBUILD_DEFCONFIG := defconfig
 
