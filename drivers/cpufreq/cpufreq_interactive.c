@@ -182,6 +182,7 @@ struct cpufreq_interactive_tunables {
 	/* for cluster identification       */
 	unsigned int min_freq;
 	unsigned int max_freq;
+	unsigned int fccpu;
 };
 
 /* For cases where we have single governor instance for system */
@@ -1513,12 +1514,12 @@ static ssize_t store_screen_off_maxfreq(
 	if (ret < 0)
 		return ret;
 
-	if ((tunables->min_freq != 0) && ((val < tunables->min_freq) || (val > tunables->max_freq)))
-		if (tunables->min_freq < 787200) {
-			tunables->screen_off_max = DEFAULT_SCREEN_OFF_MAX_LITTLE;
+	if ((tunables->min_freq != 0) && (val >= tunables->min_freq) && (val <= tunables->max_freq))
+		if (cpumask_intersects(&tunables->fccpu, cpu_perf_mask)) {
+			tunables->screen_off_max = DEFAULT_SCREEN_OFF_MAX_BIG;
 		}
 		else {
-			tunables->screen_off_max = DEFAULT_SCREEN_OFF_MAX_BIG;
+			tunables->screen_off_max = DEFAULT_SCREEN_OFF_MAX_LITTLE;
 		}
 	else if (val != 0) {
 		tunables->screen_off_max = val;
@@ -1720,8 +1721,7 @@ static struct cpufreq_interactive_tunables *alloc_tunable(
 	tunables->screen_off_max = 0;
 	tunables->boost_val = 0;
 	tunables->touchboost_val = 0;
-	tunables->min_freq = 0;
-	tunables->max_freq = 0;
+	tunables->fccpu = cpumask_first(policy->related_cpus);
 	
 	spin_lock_init(&tunables->target_loads_lock);
 	spin_lock_init(&tunables->above_hispeed_delay_lock);
