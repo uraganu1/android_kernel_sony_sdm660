@@ -3,9 +3,7 @@
 
 #include <linux/notifier.h>
 
-/* the cpus are becoming hot */
-
-enum thermal_cpu_limits {
+typedef enum {
 	/* the cpus have hit the thermal limit */
 	THERMAL_EVENT_CPUS_LIMIT_HIT = 0,
 	/* the cpus are at the hottest level */
@@ -18,7 +16,7 @@ enum thermal_cpu_limits {
 	THERMAL_EVENT_CPUS_WARMING,
 	/* the cpus are in the temperature limit */
 	THERMAL_EVENT_CPUS_COLD
-};
+} thermal_cpu_limits;
 
 struct thermal_event {
 	void *data;
