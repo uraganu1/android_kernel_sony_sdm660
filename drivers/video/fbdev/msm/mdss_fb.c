@@ -384,7 +384,7 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 
 			mfd->w_bl_level = adjusted_bl_lvl;
 			mutex_unlock(&mfd->bkl_on_lock);
-			schedule_delayed_work(&mfd->bkl_on_dwork, msecs_to_jiffies(256));
+			schedule_delayed_work(&mfd->bkl_on_dwork, 0);
 		}
 		else if (mfd->t_bl_level != 0) {
 			/* This maps android backlight level 0 to 255 into
