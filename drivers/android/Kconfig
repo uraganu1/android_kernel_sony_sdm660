@@ -72,6 +72,12 @@ config ANDROID_SIMPLE_LMK_TIMEOUT_MSEC
           needed. After the specified timeout elapses, Simple LMK will stop
           waiting and make itself available to kill more processes.
 
+config ANDROID_SIMPLE_LMK_PIE
+	bool "LMK for pie"
+	default n
+	help
+	  Simple LMK pie version if selected, otherwise Q.
+
 endif
 
 endif # if ANDROID

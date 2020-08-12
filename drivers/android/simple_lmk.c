@@ -28,6 +28,7 @@ struct victim_info {
 };
 
 /* Pulled from the Android framework. Lower adj means higher priority. */
+#ifdef CONFIG_ANDROID_SIMPLE_LMK_PIE
 static const short adj_prio[] = {
        906, /* CACHED_APP_MAX_ADJ */
        905, /* Cached app */
@@ -45,6 +46,23 @@ static const short adj_prio[] = {
        200, /* PERCEPTIBLE_APP_ADJ */
        100, /* VISIBLE_APP_ADJ */
        0    /* FOREGROUND_APP_ADJ */
+#else
+static const short adjs[] = {
+       1000, /* CACHED_APP_MAX_ADJ + 1 */
+       950,  /* CACHED_APP_LMK_FIRST_ADJ */
+       900,  /* CACHED_APP_MIN_ADJ */
+       800,  /* SERVICE_B_ADJ */
+       700,  /* PREVIOUS_APP_ADJ */
+       600,  /* HOME_APP_ADJ */
+       500,  /* SERVICE_ADJ */
+       400,  /* HEAVY_WEIGHT_APP_ADJ */
+       300,  /* BACKUP_APP_ADJ */
+       250,  /* PERCEPTIBLE_LOW_APP_ADJ */
+       200,  /* PERCEPTIBLE_APP_ADJ */
+       100,  /* VISIBLE_APP_ADJ */
+       50,   /* PERCEPTIBLE_RECENT_FOREGROUND_APP_ADJ */
+       0     /* FOREGROUND_APP_ADJ */
+#endif
 };
 
 static struct victim_info victims[MAX_VICTIMS];
@@ -86,11 +104,19 @@ static unsigned long get_total_mm_pages(struct mm_struct *mm)
 	return pages;
 }
 
+#ifdef CONFIG_ANDROID_SIMPLE_LMK_PIE
 static unsigned long find_victims(int *vindex, short target_adj)
+#else
+static unsigned long find_victims(int *vindex, short target_adj_min,
+                                  short target_adj_max)
+#endif
 {
 	unsigned long pages_found = 0;
 	int old_vindex = *vindex;
 	struct task_struct *tsk;
+#ifndef CONFIG_ANDROID_SIMPLE_LMK_PIE
+	short adj;
+#endif
 
 	for_each_process(tsk) {
 		struct signal_struct *sig;
@@ -106,7 +132,12 @@ static unsigned long find_victims(int *vindex, short target_adj)
 		 * trying to lock a task that we locked earlier.
 		 */
 		sig = tsk->signal;
+#ifdef CONFIG_ANDROID_SIMPLE_LMK_PIE
 		if (READ_ONCE(sig->oom_score_adj) != target_adj ||
+#else
+		    adj = READ_ONCE(sig->oom_score_adj);
+		    if (adj < target_adj_min || adj > target_adj_max - 1 ||
+#endif
 		    sig->flags & (SIGNAL_GROUP_EXIT | SIGNAL_GROUP_COREDUMP) ||
 		    (thread_group_empty(tsk) && tsk->flags & PF_EXITING) ||
 		    vtsk_is_duplicate(*vindex, tsk))
@@ -172,8 +203,13 @@ static void scan_and_kill(unsigned long pages_needed)
 
 	/* Hold an RCU read lock while traversing the global process list */
 	rcu_read_lock();
+#ifdef CONFIG_ANDROID_SIMPLE_LMK_PIE
 	for (i = 0; i < ARRAY_SIZE(adj_prio); i++) {
 		pages_found += find_victims(&nr_found, adj_prio[i]);
+#else
+	for (i = 1; i < ARRAY_SIZE(adjs); i++) {
+		pages_found += find_victims(&nr_victims, adjs[i], adjs[i - 1]);
+#endif
 		if (pages_found >= pages_needed || nr_found == MAX_VICTIMS)
 			break;
 	}
